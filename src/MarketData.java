@@ -29,6 +29,10 @@ public class MarketData {
 		this.updateTime = updateTime;
 	}
 	
+	public String toString() {
+		return this.symbol+"|"+this.bid+"|"+this.last+"|"+this.ask+"|"+this.updateTime;
+	}
+	
 	
 	
 }
