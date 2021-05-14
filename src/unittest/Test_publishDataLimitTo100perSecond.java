@@ -1,3 +1,5 @@
+package unittest;
+
 import java.time.Instant;
 import java.util.Hashtable;
 import java.util.Random;
@@ -6,8 +8,7 @@ import java.util.Vector;
 import marketDataProcessor.MarketData;
 import marketDataProcessor.MarketDataProcessor;
 
-
-public class TradingMain {
+public class Test_publishDataLimitTo100perSecond {
 	
 	static Random rand;
 	

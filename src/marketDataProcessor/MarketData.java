@@ -1,3 +1,4 @@
+package marketDataProcessor;
 
 public class MarketData {
 	private String symbol;

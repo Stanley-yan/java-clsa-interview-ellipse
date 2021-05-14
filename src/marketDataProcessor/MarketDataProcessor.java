@@ -1,5 +1,4 @@
-import java.util.ArrayList;
-import java.util.HashMap;
+package marketDataProcessor;
 import java.util.Hashtable;
 import java.util.LinkedList;
 import java.util.Queue;
@@ -28,7 +27,7 @@ public class MarketDataProcessor {
 	public void setWindowThreshold(int threshold) {this.window_threshold = threshold;}
 	public Hashtable<String, Vector<MarketData>> getDiscardDataHashMap(){return discardDataHashMap;}
 
-	MarketDataProcessor(int unit_time, int threshold){
+	public MarketDataProcessor(int unit_time, int threshold){
 		this.window_unit_time = unit_time;
 		this.window_threshold = threshold;
 		window_remain_quota = new AtomicInteger(threshold);
