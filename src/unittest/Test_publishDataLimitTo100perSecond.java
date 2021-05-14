@@ -13,38 +13,26 @@ public class Test_publishDataLimitTo100perSecond {
 	static Random rand;
 	
 	public static void main(String[] args) {
-		MarketDataProcessor processor = new MarketDataProcessor(1000,20);
+		System.out.print("Ensure PublishData frequency cannot exceed given threshold");
+		MarketDataProcessor processor = new MarketDataProcessor(1000,100);
 		rand = new Random();
 		new Thread() {
 			public void run() {
-				for(int i = 0; i<100;i++) {
+				for(int i = 0; i<1000;i++) {
 					processor.onMessage(new MarketData(
-							String.valueOf(rand.nextInt(5)),
+							String.valueOf(rand.nextInt(1000)),
 							rand.nextInt(50),
 							rand.nextInt(50),
 							rand.nextInt(50),
 							Instant.now().toEpochMilli()
 							));
-					processor.onMessage(new MarketData(
-							String.valueOf(rand.nextInt(5)),
-							rand.nextInt(50),
-							rand.nextInt(50),
-							rand.nextInt(50),
-							Instant.now().toEpochMilli()
-							));
-					try {
-						Thread.sleep(10);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
 				}
 				
-				Hashtable<String, Vector<MarketData>> discardData = processor.getDiscardDataHashMap();
-				discardData.forEach((k,v)->{
-					System.out.print("Symbol:"+k+"|");
-					v.forEach(action -> System.out.println(action.toString()));
-				});
+//				Hashtable<String, Vector<MarketData>> discardData = processor.getDiscardDataHashMap();
+//				discardData.forEach((k,v)->{
+//					System.out.print("Symbol:"+k+"|");
+//					v.forEach(action -> System.out.println(action.toString()));
+//				});
 			}
 		}.start();		
 	}
