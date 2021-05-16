@@ -1,20 +1,18 @@
 package marketDataProcessor;
+import java.util.Collections;
 import java.util.Hashtable;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Vector;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
-interface onMessageCallBack{
-	void onMessage(MarketData marketData);
-};
 
-public class MarketDataProcessor implements onMessageCallBack {
+public class MarketDataProcessor implements IMessageListener {
 	private int window_unit_time; //The unit time of a Sliding Window
 	private int window_threshold; //The maximum no. of call within a window unit time
 	
@@ -22,24 +20,23 @@ public class MarketDataProcessor implements onMessageCallBack {
 	private Timer window_clock; //Timer for reset the Window
 	
 	private AtomicInteger window_consume_quota; //Counter to limit Call per Window unit time
-	private ThreadPoolExecutor publishMarketDataThread; //ThreadPool to execute publish data
-
-	private Hashtable<String, Vector<MarketData>> marketDataHashMap; //Store the repeat data before publish
-	private Hashtable<String, Vector<MarketData>> discardDataHashMap;//Store the discard data after publish (store only, not further usage)
+	private ExecutorService publishMarketDataThread; //ThreadPool to execute publish data
+	private Map<String, Vector<MarketData>> marketDataHashMap; //Store the repeat data before publish
+	private Map<String, Vector<MarketData>> discardDataHashMap;//Store the discard data after publish (store only, not further usage)
 	
 	public int getWindowUnitTime() {return window_unit_time;}
 	public void setWindowUnitTime(int unit_time) {this.window_unit_time = unit_time;}
 	public int getWindowThreshold() {return window_threshold;}
 	public void setWindowThreshold(int threshold) {this.window_threshold = threshold;}
-	public Hashtable<String, Vector<MarketData>> getDiscardDataHashMap(){return discardDataHashMap;}
+	public Map<String, Vector<MarketData>> getDiscardDataHashMap(){return discardDataHashMap;}
 
 	public MarketDataProcessor(int unit_time, int threshold){
 		this.window_unit_time = unit_time;
 		this.window_threshold = threshold;
-		window_consume_quota = new AtomicInteger(threshold);
+		window_consume_quota = new AtomicInteger(0);
 		queue = new LinkedList<String>();
-		marketDataHashMap = new Hashtable<String,Vector<MarketData>>();
-		discardDataHashMap = new Hashtable<String,Vector<MarketData>>();
+		marketDataHashMap = Collections.synchronizedMap(new Hashtable<String,Vector<MarketData>>());
+		discardDataHashMap = Collections.synchronizedMap(new Hashtable<String,Vector<MarketData>>());
 		window_clock = new Timer();
 		
 		window_clock.schedule(new TimerTask() {
@@ -51,10 +48,7 @@ public class MarketDataProcessor implements onMessageCallBack {
 			
 		}, 0,window_unit_time);
 		
-		//Only 100 thread, each thread last for 1s only.
-		this.publishMarketDataThread = new ThreadPoolExecutor(100,100,1,
-				TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>());
-		
+		publishMarketDataThread = Executors.newFixedThreadPool(5);
 		
 		new Thread() {
 			public void run() {
@@ -86,38 +80,13 @@ public class MarketDataProcessor implements onMessageCallBack {
 			}
 		}.start();
 		
-
 	}
 	
 	// Receive incoming market data
 	public void onMessage(MarketData data) {
-		//put into a queue
-		
-		//1st check if the MarketData is exist in the Hashmap 
-		if(marketDataHashMap.containsKey(data.getSymbol())) {
-			//Exists data, get the Vector and then append to the end
-			Vector<MarketData> temp = marketDataHashMap.get(data.getSymbol());
-			//double check null condition
-			if(temp == null) {
-				Vector<MarketData> temp2 = new Vector<MarketData>();
-				temp2.add(data);
-				//update the hashmap
-				marketDataHashMap.put(data.getSymbol(), temp2);
-			}
-			else {
-				//update the hashmap
-				temp.add(data);
-				marketDataHashMap.put(data.getSymbol(), temp);
-			}
-		}
-		else {//not exists, new a Vector and store
-			Vector<MarketData> temp = new Vector<MarketData>();
-			temp.add(data);
-			marketDataHashMap.put(data.getSymbol(), temp);
-		}
-		
-		
-		//Put into Queue, can this line go to top?
+		//put into a hashmap
+		onReceive(data);
+		//Put into Queue
 		queue.offer(data.getSymbol());
 	}
 	
@@ -141,25 +110,74 @@ public class MarketDataProcessor implements onMessageCallBack {
 			
 			//get the corresponding symbol;
 			symbol = targetData.getSymbol();
-			
-			//remove the latest data from Vector to publish 
-			symbolData.remove(symbolData.size()-1);
-			
+
 			//publish data
 			publishAggregatedMarketData(targetData);
 			
-			//get the discardData from discard data hashmap by the symbol
-			Vector<MarketData> discardVector = discardDataHashMap.get(symbol);
-			//check if any discard data before
-			if(discardVector != null) {
+			//Clear up the out-dated data
+			removeDiscardDatafromQueueAndStore(symbolData, symbol);
+		}
+		//else, no data, pass
+	}
+	
+	
+	//Put MarketData into hashmap when onMessage fire
+	public Vector<MarketData> onReceive(MarketData data) {
+		//1st check if the MarketData is exist in the Hashmap 
+		if(marketDataHashMap.containsKey(data.getSymbol())) {
+			//Exists data, get the Vector and then append to the end
+			Vector<MarketData> temp = marketDataHashMap.get(data.getSymbol());
+			//double check null condition
+			if(temp == null) {
+				Vector<MarketData> temp2 = new Vector<MarketData>();
+				temp2.add(data);
+				//update the hashmap
+				marketDataHashMap.put(data.getSymbol(), temp2);
+				return temp2;
+			}
+			else {
+				//update the hashmap
+				try {
+					temp.add(data);
+					marketDataHashMap.put(data.getSymbol(), temp);
+					return temp;
+				}catch (NullPointerException ex) {
+					temp = new Vector<MarketData>();
+					temp.add(data);
+					marketDataHashMap.put(data.getSymbol(), temp);
+					return temp;
+				}
+			}
+		}
+		else {//not exists, new a Vector and store
+			Vector<MarketData> temp = new Vector<MarketData>();
+			temp.add(data);
+			marketDataHashMap.put(data.getSymbol(), temp);
+			return temp;
+		}
+	}
+
+	//After publishData, reorganize the out-dated makret data.
+	public Map<String, Vector<MarketData>> removeDiscardDatafromQueueAndStore(Vector<MarketData> symbolData, String symbol){
+		//get the discardData from discard data hashmap by the symbol
+		Vector<MarketData> discardVector = discardDataHashMap.get(symbol);
+		//check if any discard data before
+		if(discardVector != null) {
+			try {
 				//have data, add to the end
 				discardVector.addAll(symbolData);
 				//update
-				discardDataHashMap.put(targetData.getSymbol(), discardVector);
+				discardDataHashMap.put(symbol, discardVector);
+			} catch (NullPointerException ex) {
+				discardVector = new Vector<MarketData>();
+				discardVector.addAll(symbolData);
+				discardDataHashMap.put(symbol, discardVector);
 			}
-			else //no data before, just add
-				discardDataHashMap.put(targetData.getSymbol(), symbolData);
 		}
-		//else, no data, pass
+		else //no data before, just add
+			discardDataHashMap.put(symbol, symbolData);
+
+		
+		return discardDataHashMap;
 	}
 }
